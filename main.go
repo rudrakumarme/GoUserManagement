@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 
+	_ "github.com/lib/pq"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -23,24 +24,27 @@ type User struct {
 }
 
 func main() {
+	db := setupDatabase()
+	defer db.Close()
 
+	http.HandleFunc("/register", registerHandler(db))
+	http.HandleFunc("/login", loginHandler(db))
+	fmt.Println("Server started on :8044")
+	log.Fatal(http.ListenAndServe(":8044", nil))
 }
 
 func setupDatabase() *sql.DB {
-	psqlInfo := fmt.Sprintf("host=%s port=%d user=%s "+
-		"password=%s dbname=%s",
+	psqlInfo := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
 		host, port, user, password, dbname)
-
 	db, err := sql.Open("postgres", psqlInfo)
 	if err != nil {
 		log.Fatal(err)
 	}
 	err = db.Ping()
-
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Println("Successfully connected to the database")
+	fmt.Println("Successfully connected to the database.")
 	return db
 }
 
@@ -64,18 +68,31 @@ func registerHandler(db *sql.DB) http.HandlerFunc {
 			http.Error(w, "Failed to save user", http.StatusInternalServerError)
 			return
 		}
-		fmt.Fprintf(w, "User registered successfully!")
+		fmt.Fprintf(w, "User registered successfully!\n")
 	}
 }
 
 func loginHandler(db *sql.DB) http.HandlerFunc {
-	
-	var PasswordHash string
-	err := db.QueryRow("SELECT password_hash FROM users WHERE username = $1"), username.Scan(&PasswordHash)
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			http.Error(w, "Only Post method is allowed!", http.StatusMethodNotAllowed)
+			return
+		}
+		username := r.FormValue("username")
+		password := r.FormValue("password")
 
-	if err != nil {
-		http.Error(w, "Failed to query database", http.StatusInternalServerError)
-		return
+		var passwordHash string
+		err := db.QueryRow("SELECT password_hash FROM users WHERE username = $1",
+			username).Scan(&passwordHash)
+		if err != nil {
+			http.Error(w, "User not found", http.StatusUnauthorized)
+			return
+		}
+		err = bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(password))
+		if err != nil {
+			http.Error(w, "Invalid credential!", http.StatusMethodNotAllowed)
+			return
+		}
+		fmt.Fprintf(w, "Logged in successfully!\n")
 	}
-
-	err = bcrypt.CompareHashAndPassword([]byte(PasswordHash), []byte(password))
+}
