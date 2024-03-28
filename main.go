@@ -67,3 +67,15 @@ func registerHandler(db *sql.DB) http.HandlerFunc {
 		fmt.Fprintf(w, "User registered successfully!")
 	}
 }
+
+func loginHandler(db *sql.DB) http.HandlerFunc {
+	
+	var PasswordHash string
+	err := db.QueryRow("SELECT password_hash FROM users WHERE username = $1"), username.Scan(&PasswordHash)
+
+	if err != nil {
+		http.Error(w, "Failed to query database", http.StatusInternalServerError)
+		return
+	}
+
+	err = bcrypt.CompareHashAndPassword([]byte(PasswordHash), []byte(password))
